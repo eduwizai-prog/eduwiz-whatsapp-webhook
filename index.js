@@ -1,17 +1,20 @@
 import express from "express";
 import bodyParser from "body-parser";
+import fetch from "node-fetch";
 
 const app = express();
 app.use(bodyParser.json());
 
-// Verify webhook
+const VERIFY_TOKEN = "eduwizverifytoken";
+const WHATSAPP_TOKEN = "YOUR_WHATSAPP_ACCESS_TOKEN"; // Replace with actual token
+
+// ✅ Verification endpoint
 app.get("/webhook", (req, res) => {
-  const verifyToken = "eduwizverifytoken";
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (mode === "subscribe" && token === verifyToken) {
+  if (mode && token === VERIFY_TOKEN) {
     console.log("Webhook verified successfully");
     res.status(200).send(challenge);
   } else {
@@ -19,49 +22,45 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// Handle incoming messages
-app.post("/webhook", (req, res) => {
-  const body = req.body;
+// ✅ Receiving messages
+app.post("/webhook", async (req, res) => {
+  try {
+    const entry = req.body.entry?.[0];
+    const changes = entry?.changes?.[0];
+    const message = changes?.value?.messages?.[0];
 
-  if (body.object) {
-    const messages = body.entry?.[0]?.changes?.[0]?.value?.messages;
-    if (messages && messages[0]) {
-      const from = messages[0].from;
-      const msgBody = messages[0].text?.body || "";
+    if (message) {
+      const from = message.from;
+      const name = message.profile?.name;
+      const text = message.text?.body;
 
-      console.log("Received message:", msgBody);
+      console.log(`📩 Message from ${name}: ${text}`);
 
-      // Send auto-reply
-      sendReply(from);
+      // Auto reply
+      const reply = `👋 Hello ${name || "there"}! 
+Welcome to *Eduwiz AI*. 
+I’m your learning assistant for WAEC, NECO, JAMB & GCE exam prep.`;
+
+      await fetch("https://graph.facebook.com/v20.0/YOUR_PHONE_NUMBER_ID/messages", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${WHATSAPP_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: from,
+          type: "text",
+          text: { body: reply },
+        }),
+      });
     }
+
     res.sendStatus(200);
-  } else {
-    res.sendStatus(404);
+  } catch (error) {
+    console.error("❌ Webhook Error:", error);
+    res.sendStatus(500);
   }
 });
-
-// Auto-reply function
-async function sendReply(to) {
-  const url = "https://graph.facebook.com/v24.0/YOUR_PHONE_NUMBER_ID/messages";
-  const token = "YOUR_WHATSAPP_ACCESS_TOKEN";
-
-  const payload = {
-    messaging_product: "whatsapp",
-    to: to,
-    text: { body: "👋 Hello! I’m Eduwiz AI — your study assistant for WAEC, JAMB, NECO, and GCE. Type 'menu' to get started." }
-  };
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  const result = await response.json();
-  console.log("Reply sent:", result);
-}
 
 app.listen(10000, () => console.log("🚀 Webhook running on port 10000"));
